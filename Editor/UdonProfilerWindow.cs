@@ -66,7 +66,8 @@ namespace MagmaVRC.UdonProfiler
         {
             var root = rootVisualElement;
             root.AddToClassList("up-root");
-            var uss = AssetDatabase.LoadAssetAtPath<StyleSheet>("Packages/dev.magmavrc.udonprofiler/Editor/UdonProfilerWindow.uss");
+            var ussGuid = AssetDatabase.FindAssets("UdonProfilerWindow t:StyleSheet").FirstOrDefault();
+            var uss = ussGuid == null ? null : AssetDatabase.LoadAssetAtPath<StyleSheet>(AssetDatabase.GUIDToAssetPath(ussGuid));
             if (uss != null) root.styleSheets.Add(uss);
 
             root.Add(BuildToolbar());
