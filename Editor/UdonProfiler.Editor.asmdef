@@ -1,0 +1,28 @@
+{
+    "name": "UdonProfiler.Editor",
+    "rootNamespace": "MagmaVRC.UdonProfiler",
+    "references": [
+        "VRC.Udon",
+        "UdonSharp.Editor",
+        "UdonSharp.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "0Harmony.dll",
+        "VRC.Udon.Common.dll",
+        "VRC.Udon.Wrapper.dll",
+        "VRC.Udon.VM.dll",
+        "VRCSDK3.dll",
+        "VRCSDKBase.dll",
+        "System.Collections.Immutable.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
