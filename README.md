@@ -6,24 +6,24 @@ Unity's built-in profiler only shows Udon as a single `UdonBehaviour.ManagedUpda
 
 ## Install
 
-Drop the package into `Packages/` (Unity 2022.3, `com.vrchat.worlds` >= 3.7). Open `Window > Udon Profiler`, enter play mode (ClientSim), and it records.
+Drop the package into `Packages/` (Unity 2022.3, `com.vrchat.worlds` >= 3.7). Open `MagmaVRC > Udon Profiler`, enter play mode (ClientSim), and it records.
 
 ## What it shows
 
 - **Stat tiles**: Udon ms per frame (average and max over the selected range), events per frame, externs per frame, active behaviours. The colour uses a Quest scale factor (default 4x) so editor numbers are judged against a Quest-sized budget.
 - **Frame chart**: one bar per frame. Click selects a frame, drag selects a range, the wheel scrolls. A dashed line shows the auto-pause threshold.
 - **Frame timeline**: a flame chart of the selected frame in execution order and nesting depth, coloured per script. Click a bar to jump to its row.
-- **Tree**: group by Script, GameObject or Event. Columns: % of Udon time, Total, Self, Calls, Externs, Avg, Max per call, Extern ms, and Delta against a saved baseline. Sort by any column. Double-click a row to select the GameObject.
+- **Tree**: group by Script, GameObject or Event. Columns: % of Udon time, Total, Self, Calls, Externs, Avg, Max and p95 per call, Extern ms, GC KB allocated (when the Mono runtime exposes per-thread allocation), and Delta against a saved baseline. Sort by any column. Double-click a row to select the GameObject.
 - **Detail pane**: for the selected row, its instances, who called it, what it calls (delayed events marked), and its externs by count and time.
 
 ## Toolbar
 
 - **Record** / **Clear**.
 - **Loop events only**: keep only `_update`, `_lateUpdate`, `_fixedUpdate`, `_postLateUpdate` roots so one-off spikes (`_start`, player joins) do not dominate the maximum.
-- **Extern timing**: toggle the per-extern timestamps.
+- **Options**: **Extern timing** (per-extern timestamps), **Extern breakdown** (per-signature stats; off leaves per-event extern totals but skips the per-call dictionary work), **Unity Profiler markers** (each Udon event emits a `ProfilerMarker` so it nests inside Unity Profiler captures).
 - **Pause >**: stop recording on the first frame above N ms and select it.
 - **Set baseline** / **Clear baseline**: snapshot the current view; later captures show a signed percentage per row.
-- **Export CSV**.
+- **File**: **Export CSV**, **Save capture** / **Load capture** (`.udonprofile`, the full ring buffer with names and extern stats, reloadable in any editor session).
 - **Quest x**: the budget scale factor.
 
 ## How it works
@@ -34,7 +34,7 @@ Harmony patches applied in the editor only:
 - `UdonWrapper.GetExternFunctionDelegate`: each extern delegate is wrapped once so extern count and time are attributed to the running event, with nested event time subtracted.
 - `UdonManager.ScheduleDelayedEvent`: delayed events are linked to the event that scheduled them instead of appearing as orphan roots.
 
-Recording keeps a 600-frame ring buffer and allocates nothing on the hot path. Overhead while recording is two timestamps per event plus one per extern. Off the main thread (`_onAudioFilterRead`) nothing is recorded.
+Recording keeps a 600-frame ring buffer and allocates nothing on the hot path. Overhead while recording is two timestamps per event plus one per extern; extern signatures are interned to ints once at wrapper creation so no string hashing happens per call. The window rebuilds at most ~3x/sec while recording and not at all when its tab is hidden. Off the main thread (`_onAudioFilterRead`) nothing is recorded.
 
 ## Notes
 
