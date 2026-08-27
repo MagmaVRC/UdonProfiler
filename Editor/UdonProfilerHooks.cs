@@ -78,7 +78,7 @@ namespace MagmaVRC.UdonProfiler
         {
             if (__result == null) return;
             var original = __result;
-            string sig = externFunctionSignature;
+            int sigId = UdonProfilerRecorder.SigId(externFunctionSignature);
             __result = (IUdonHeap heap, Span<uint> addresses) =>
             {
                 if (!UdonProfilerRecorder.ExternBegin(out long start, out long child))
@@ -87,7 +87,7 @@ namespace MagmaVRC.UdonProfiler
                     return;
                 }
                 try { original(heap, addresses); }
-                finally { UdonProfilerRecorder.ExternEnd(sig, start, child); }
+                finally { UdonProfilerRecorder.ExternEnd(sigId, start, child); }
             };
         }
 
