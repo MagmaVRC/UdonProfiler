@@ -15,8 +15,7 @@ namespace MagmaVRC.UdonProfiler
         const string Prefs = "MagmaVRC.UdonProfiler.";
         static readonly string[] RangeNames = { "Selected frame", "Last 60", "Last 300", "All", "Custom" };
 
-        [MenuItem("Window/Udon Profiler")]
-        [MenuItem("VRChat SDK/Udon Profiler")]
+        [MenuItem("MagmaVRC/Udon Profiler")]
         static void Open() => GetWindow<UdonProfilerWindow>("Udon Profiler");
 
         GroupMode groupMode;
@@ -55,12 +54,18 @@ namespace MagmaVRC.UdonProfiler
             questScale = EditorPrefs.GetFloat(Prefs + "QuestScale", 4f);
             UdonProfilerRecorder.Recording = EditorPrefs.GetBool(Prefs + "Record", true);
             UdonProfilerRecorder.ExternTiming = EditorPrefs.GetBool(Prefs + "ExternTiming", true);
+            UdonProfilerRecorder.DetailedExterns = EditorPrefs.GetBool(Prefs + "DetailedExterns", true);
+            UdonProfilerRecorder.EmitMarkers = EditorPrefs.GetBool(Prefs + "EmitMarkers", true);
             UdonProfilerRecorder.PauseAboveMs = EditorPrefs.GetFloat(Prefs + "PauseAbove", 0f);
             lastPausedOn = UdonProfilerRecorder.PausedOnFrame;
             EditorApplication.update += Tick;
         }
 
         void OnDisable() => EditorApplication.update -= Tick;
+
+        bool visibleTab = true;
+        void OnBecameVisible() { visibleTab = true; dirty = true; }
+        void OnBecameInvisible() => visibleTab = false;
 
         public void CreateGUI()
         {
@@ -140,9 +145,15 @@ namespace MagmaVRC.UdonProfiler
             tb.Add(sf);
             tb.Add(new ToolbarSpacer { flex = true });
 
-            var ext = new ToolbarToggle { text = "Extern timing", value = UdonProfilerRecorder.ExternTiming };
-            ext.RegisterValueChangedCallback(e => { UdonProfilerRecorder.ExternTiming = e.newValue; EditorPrefs.SetBool(Prefs + "ExternTiming", e.newValue); });
-            tb.Add(ext);
+            var opts = new ToolbarMenu { text = "Options" };
+            void Opt(string label, string pref, Func<bool> get, Action<bool> set) =>
+                opts.menu.AppendAction(label,
+                    _ => { bool v = !get(); set(v); EditorPrefs.SetBool(Prefs + pref, v); },
+                    _ => get() ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal);
+            Opt("Extern timing", "ExternTiming", () => UdonProfilerRecorder.ExternTiming, v => UdonProfilerRecorder.ExternTiming = v);
+            Opt("Extern breakdown (per signature)", "DetailedExterns", () => UdonProfilerRecorder.DetailedExterns, v => UdonProfilerRecorder.DetailedExterns = v);
+            Opt("Unity Profiler markers", "EmitMarkers", () => UdonProfilerRecorder.EmitMarkers, v => UdonProfilerRecorder.EmitMarkers = v);
+            tb.Add(opts);
 
             var pause = new FloatField("Pause >") { value = (float)UdonProfilerRecorder.PauseAboveMs, tooltip = "Auto-pause recording when a frame's Udon ms exceeds this (0 = off)" };
             pause.AddToClassList("up-scale");
@@ -152,12 +163,29 @@ namespace MagmaVRC.UdonProfiler
 
             tb.Add(new ToolbarButton(() => { UdonProfilerModel.SetBaseline(view, groupMode); Touch(); }) { text = "Set baseline" });
             tb.Add(new ToolbarButton(() => { UdonProfilerModel.Baseline = null; Touch(); }) { text = "Clear baseline" });
-            tb.Add(new ToolbarButton(() =>
+            var file = new ToolbarMenu { text = "File" };
+            file.menu.AppendAction("Export CSV", _ =>
             {
                 if (view == null) return;
                 var path = EditorUtility.SaveFilePanel("Export Udon profile", "", "udon-profile.csv", "csv");
                 if (!string.IsNullOrEmpty(path)) System.IO.File.WriteAllText(path, UdonProfilerModel.ToCsv(view));
-            }) { text = "Export CSV" });
+            }, _ => view == null ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
+            file.menu.AppendAction("Save capture", _ =>
+            {
+                var path = EditorUtility.SaveFilePanel("Save Udon capture", "", "udon-capture.udonprofile", "udonprofile");
+                if (!string.IsNullOrEmpty(path)) UdonProfilerRecorder.SaveCapture(path);
+            }, _ => UdonProfilerRecorder.FrameCount == 0 ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
+            file.menu.AppendAction("Load capture", _ =>
+            {
+                var path = EditorUtility.OpenFilePanel("Load Udon capture", "", "udonprofile");
+                if (string.IsNullOrEmpty(path)) return;
+                try { UdonProfilerRecorder.LoadCapture(path); }
+                catch (Exception ex) { EditorUtility.DisplayDialog("Udon Profiler", "Failed to load capture: " + ex.Message, "OK"); return; }
+                recToggle.SetValueWithoutNotify(false);
+                selectedFrame = customFrom = customTo = -1;
+                SetRange(RangeMode.All);
+            });
+            tb.Add(file);
 
             var scale = new FloatField("Quest x") { value = questScale, tooltip = "Editor Mono vs Quest IL2CPP multiplier; affects budget colouring only" };
             scale.AddToClassList("up-scale");
@@ -197,7 +225,10 @@ namespace MagmaVRC.UdonProfiler
             cols.Add(NumColumn("externs", "Externs", 60, n => n.externCalls.ToString()));
             cols.Add(NumColumn("avg", "Avg ms", 64, n => n.calls == 0 ? "" : (n.totalMs / n.calls).ToString("0.000")));
             cols.Add(NumColumn("max", "Max ms", 64, n => n.maxMs.ToString("0.000")));
+            cols.Add(NumColumn("p95", "p95 ms", 64, n => n.kind == NodeKind.Extern ? "" : n.p95Ms.ToString("0.000")));
             cols.Add(NumColumn("extern", "Extern ms", 70, n => n.externMs.ToString("0.00")));
+            if (UdonProfilerRecorder.AllocSupported)
+                cols.Add(NumColumn("alloc", "GC KB", 60, n => n.kind == NodeKind.Extern ? "" : (n.allocBytes / 1024.0).ToString("0.0")));
             deltaColumn = NumColumn("delta", "Delta", 60, n => double.IsNaN(n.baselineMs) ? "new" : n.baselineMs <= 0 ? "" : FormatDelta(Delta(n)));
             deltaColumn.visible = UdonProfilerModel.Baseline != null;
             var bind = deltaColumn.bindCell;
@@ -294,8 +325,10 @@ namespace MagmaVRC.UdonProfiler
                 SetRange(RangeMode.Selected);
                 return;
             }
+            if (!visibleTab) return;
             if (!dirty && UdonProfilerRecorder.Version == lastVersion) return;
-            if (EditorApplication.timeSinceStartup - lastRebuild < 0.1) return;
+            bool live = UdonProfilerRecorder.Recording && EditorApplication.isPlaying;
+            if (EditorApplication.timeSinceStartup - lastRebuild < (live ? 0.3 : 0.1)) return;
             Rebuild();
         }
 
@@ -397,7 +430,9 @@ namespace MagmaVRC.UdonProfiler
                 "externs" => n => n.externCalls,
                 "avg" => n => n.calls == 0 ? 0 : n.totalMs / n.calls,
                 "max" => n => n.maxMs,
+                "p95" => n => n.p95Ms,
                 "extern" => n => n.externMs,
+                "alloc" => n => n.allocBytes,
                 "delta" => DeltaKey,
                 _ => n => n.totalMs
             };
@@ -425,7 +460,8 @@ namespace MagmaVRC.UdonProfiler
                 case NodeKind.Extern: sub.text = n.sig; break;
             }
             if (n.halted) { var h = new Label("halted"); h.AddToClassList("up-badge"); h.style.alignSelf = Align.FlexStart; detail.Add(h); }
-            detail.Add(new Label($"Total {n.totalMs:0.00} ms | Self {n.selfMs:0.00} ms | Extern {n.externMs:0.00} ms | {n.calls} calls"));
+            detail.Add(new Label($"Total {n.totalMs:0.00} ms | Self {n.selfMs:0.00} ms | Extern {n.externMs:0.00} ms | p95 {n.p95Ms:0.000} ms | {n.calls} calls"
+                + (UdonProfilerRecorder.AllocSupported && n.kind != NodeKind.Extern ? $" | GC {n.allocBytes / 1024.0:0.0} KB" : "")));
 
             if (n.kind == NodeKind.Group)
             {

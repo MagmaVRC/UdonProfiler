@@ -11,9 +11,11 @@ namespace MagmaVRC.UdonProfiler
         public string name;
         public NodeKind kind;
         public int id;
-        public double totalMs, selfMs, externMs, maxMs;
+        public double totalMs, selfMs, externMs, maxMs, p95Ms;
         public double baselineMs = double.NaN;
+        public long allocBytes;
         public int calls, externCalls, instances;
+        internal List<float> callMs;
         public bool halted;
         public int behaviourId;
         public uint entry;
@@ -45,7 +47,7 @@ namespace MagmaVRC.UdonProfiler
         public List<Node> roots = new List<Node>();
         public List<Edge> edges = new List<Edge>();
         public List<ExternRow> topExterns = new List<ExternRow>();
-        internal Dictionary<(int, uint, string), ExternStat> externsByEvent = new Dictionary<(int, uint, string), ExternStat>();
+        internal Dictionary<(int, uint, int), ExternStat> externsByEvent = new Dictionary<(int, uint, int), ExternStat>();
         internal Dictionary<int, Node> behaviourNodes = new Dictionary<int, Node>();
 
         public List<Edge> EdgesInto(int behaviourId, uint entry)
@@ -66,15 +68,15 @@ namespace MagmaVRC.UdonProfiler
 
         public List<ExternRow> ExternsOf(Node n)
         {
-            var acc = new Dictionary<string, ExternStat>();
+            var acc = new Dictionary<int, ExternStat>();
             Collect(n, acc);
             var r = new List<ExternRow>(acc.Count);
-            foreach (var kv in acc) r.Add(new ExternRow { sig = kv.Key, count = kv.Value.count, ms = kv.Value.ticks * UdonProfilerRecorder.MsPerTick });
+            foreach (var kv in acc) r.Add(new ExternRow { sig = UdonProfilerRecorder.Sig(kv.Key), count = kv.Value.count, ms = kv.Value.ticks * UdonProfilerRecorder.MsPerTick });
             r.Sort((a, b) => b.ms.CompareTo(a.ms));
             return r;
         }
 
-        void Collect(Node n, Dictionary<string, ExternStat> acc)
+        void Collect(Node n, Dictionary<int, ExternStat> acc)
         {
             if (n.kind == NodeKind.Event || (n.kind == NodeKind.Behaviour && n.entry != 0))
             {
@@ -133,7 +135,7 @@ namespace MagmaVRC.UdonProfiler
             var behaviours = new Dictionary<(string, int), Node>();
             var events = new Dictionary<(int, uint), Node>();
             var edgeMap = new Dictionary<(int, uint, int, uint, bool), Edge>();
-            var externTotals = new Dictionary<string, ExternStat>();
+            var externTotals = new Dictionary<int, ExternStat>();
             var active = new HashSet<int>();
             var kept = new HashSet<(int, uint)>();
             long totalExterns = 0, totalEvents = 0, totalTicks = 0;
@@ -151,7 +153,8 @@ namespace MagmaVRC.UdonProfiler
                 for (int i = 0; i < samples.Count; i++)
                 {
                     var s = samples[i];
-                    bool k = s.parent >= 0 ? keep[s.parent] : !loopOnly || IsLoop(UdonProfilerRecorder.EventName(s.behaviourId, s.entry));
+                    string evName = UdonProfilerRecorder.EventName(s.behaviourId, s.entry);
+                    bool k = s.parent >= 0 ? keep[s.parent] : !loopOnly || IsLoop(evName);
                     keep.Add(k);
                     if (!k) continue;
                     if (s.parent < 0) frameTicks += s.inclusiveTicks;
@@ -160,7 +163,6 @@ namespace MagmaVRC.UdonProfiler
                     kept.Add((s.behaviourId, s.entry));
 
                     var info = UdonProfilerRecorder.GetInfo(s.behaviourId);
-                    string evName = UdonProfilerRecorder.EventName(s.behaviourId, s.entry);
                     string groupKey = mode == GroupMode.Script ? info?.script ?? "?" : mode == GroupMode.GameObject ? info?.objectPath ?? "?" : evName;
                     if (!groups.TryGetValue(groupKey, out var g))
                     {
@@ -247,10 +249,11 @@ namespace MagmaVRC.UdonProfiler
                 if (!filter || Matches(g, search)) v.roots.Add(g);
             }
             v.roots.Sort((a, b) => b.totalMs.CompareTo(a.totalMs));
+            FinishPercentiles(v.roots);
             Dedup(v.roots, new HashSet<int>());
             if (Baseline != null && BaselineMode == mode) ApplyBaseline(v.roots, v.frameCount);
             foreach (var e in edgeMap.Values) v.edges.Add(e);
-            foreach (var kv in externTotals) v.topExterns.Add(new ExternRow { sig = kv.Key, count = kv.Value.count, ms = kv.Value.ticks * ms });
+            foreach (var kv in externTotals) v.topExterns.Add(new ExternRow { sig = UdonProfilerRecorder.Sig(kv.Key), count = kv.Value.count, ms = kv.Value.ticks * ms });
             v.topExterns.Sort((a, b) => b.ms.CompareTo(a.ms));
             return v;
         }
@@ -281,7 +284,7 @@ namespace MagmaVRC.UdonProfiler
         public static string ToCsv(ProfileView v)
         {
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine("kind,name,script,object,event,total_ms,self_ms,extern_ms,max_ms,calls,externs,avg_ms,pct");
+            sb.AppendLine("kind,name,script,object,event,total_ms,self_ms,extern_ms,max_ms,p95_ms,alloc_kb,calls,externs,avg_ms,pct");
             void Walk(Node n, int depth)
             {
                 var info = n.kind == NodeKind.Group ? null : UdonProfilerRecorder.GetInfo(n.behaviourId);
@@ -289,6 +292,7 @@ namespace MagmaVRC.UdonProfiler
                 double pct = v.avgMs > 0 ? n.totalMs / Math.Max(1, v.frameCount) / v.avgMs * 100 : 0;
                 sb.Append(n.kind).Append(',').Append(Q(n.name)).Append(',').Append(Q(info?.script)).Append(',').Append(Q(info?.objectPath)).Append(',').Append(Q(ev)).Append(',')
                   .Append(n.totalMs.ToString("0.000")).Append(',').Append(n.selfMs.ToString("0.000")).Append(',').Append(n.externMs.ToString("0.000")).Append(',').Append(n.maxMs.ToString("0.000")).Append(',')
+                  .Append(n.p95Ms.ToString("0.000")).Append(',').Append((n.allocBytes / 1024.0).ToString("0.0")).Append(',')
                   .Append(n.calls).Append(',').Append(n.externCalls).Append(',').Append(n.calls == 0 ? "" : (n.totalMs / n.calls).ToString("0.0000")).Append(',').Append(pct.ToString("0.00")).AppendLine();
                 foreach (var c in n.children) Walk(c, depth + 1);
             }
@@ -343,6 +347,22 @@ namespace MagmaVRC.UdonProfiler
             n.selfMs += (s.inclusiveTicks - s.childTicks) * ms;
             n.externMs += s.externTicks * ms;
             n.externCalls += s.externCount;
+            n.allocBytes += s.allocBytes;
+            (n.callMs ??= new List<float>()).Add((float)inc);
+        }
+
+        static void FinishPercentiles(List<Node> nodes)
+        {
+            foreach (var n in nodes)
+            {
+                if (n.callMs != null && n.callMs.Count > 0)
+                {
+                    n.callMs.Sort();
+                    n.p95Ms = n.callMs[Math.Min(n.callMs.Count - 1, (int)Math.Ceiling(n.callMs.Count * 0.95) - 1)];
+                    n.callMs = null;
+                }
+                FinishPercentiles(n.children);
+            }
         }
 
         static void AddEdge(Dictionary<(int, uint, int, uint, bool), Edge> map, int fb, uint fe, int tb, uint te, double ms, bool delayed)
