@@ -22,9 +22,13 @@ namespace MagmaVRC.UdonProfiler
         static UdonProfilerHooks()
         {
             UdonProfilerRecorder.MainThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
-            var programField = AccessTools.Field(typeof(UdonBehaviour), "_program");
-            if (programField != null)
-                UdonProfilerRecorder.SetProgramGetter(ub => (IUdonProgram)programField.GetValue(ub));
+            AccessTools.FieldRef<UdonBehaviour, IUdonProgram> programRef = null;
+            AccessTools.FieldRef<UdonBehaviour, AbstractSerializedUdonProgramAsset> serializedRef = null;
+            try { programRef = AccessTools.FieldRefAccess<UdonBehaviour, IUdonProgram>("_program"); }
+            catch (Exception) { programRef = null; }
+            try { serializedRef = AccessTools.FieldRefAccess<UdonBehaviour, AbstractSerializedUdonProgramAsset>("serializedProgramAsset"); }
+            catch (Exception) { serializedRef = null; }
+            UdonProfilerRecorder.SetProgramRefs(programRef, serializedRef);
 
             var harmony = new Harmony(HarmonyId);
             Try("RunProgram", () =>
@@ -50,12 +54,30 @@ namespace MagmaVRC.UdonProfiler
                 }
                 SchedulerPatched = true;
             });
+            if (EditorPrefs.GetBool("MagmaVRC.UdonProfiler.StockHooks", true)) Try("UdonVM.Interpret", UdonProfilerStockHooks.Install(harmony));
+            Try("network hooks", () => UdonProfilerNetwork.Install(harmony));
+            UdonProfilerRecorder.ContinuousSendRate = EditorPrefs.GetFloat("MagmaVRC.UdonProfiler.ContinuousRate", 10f);
+
+            UdonProfilerProbe.Bind();
+            UdonProfilerRecorder.SyncProbes();
 
             EditorApplication.playModeStateChanged += s =>
             {
-                if (s == PlayModeStateChange.EnteredPlayMode) UdonProfilerRecorder.Clear();
+                if (s == PlayModeStateChange.EnteredPlayMode)
+                {
+                    UdonProfilerRecorder.ResetFusedSites();
+                    UdonProfilerRecorder.Clear();
+                    UdonProfilerRecorder.SyncProbes();
+                }
+                else if (s == PlayModeStateChange.EnteredEditMode)
+                {
+                    UdonProfilerRecorder.SyncProbes();
+                    UdonProgramMap.ClearCache();
+                }
             };
         }
+
+        public static bool InterpretPatched => UdonProfilerStockHooks.Patched;
 
         static void Try(string what, Action a)
         {
@@ -79,7 +101,8 @@ namespace MagmaVRC.UdonProfiler
             if (__result == null) return;
             var original = __result;
             int sigId = UdonProfilerRecorder.SigId(externFunctionSignature);
-            __result = (IUdonHeap heap, Span<uint> addresses) =>
+            var site = new[] { -1, -1, -1 };
+            __result = (IUdonHeap heap, System.Span<uint> addresses) =>
             {
                 if (!UdonProfilerRecorder.ExternBegin(out long start, out long child))
                 {
@@ -87,7 +110,7 @@ namespace MagmaVRC.UdonProfiler
                     return;
                 }
                 try { original(heap, addresses); }
-                finally { UdonProfilerRecorder.ExternEnd(sigId, start, child); }
+                finally { UdonProfilerRecorder.ExternEnd(sigId, start, child, site); }
             };
         }
 

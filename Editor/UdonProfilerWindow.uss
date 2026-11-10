@@ -101,8 +101,24 @@
     margin-left: 0;
 }
 
+.up-timeline-head {
+    flex-direction: row;
+    height: 18px;
+    align-items: center;
+    font-size: 10px;
+}
+
+.up-timeline-head > Button {
+    height: 16px;
+    padding: 0 6px;
+    margin: 0 2px 0 0;
+}
+
+.up-timeline-head > Label {
+    margin: 0 6px;
+}
+
 .up-timeline {
-    height: 120px;
     border-radius: 6px;
     border-width: 1px;
     border-color: var(--unity-colors-input_field-border);
@@ -130,6 +146,65 @@
     position: absolute;
     font-size: 9px;
     opacity: 0.5;
+}
+
+.up-chart-budget {
+    position: absolute;
+    right: 4px;
+    font-size: 9px;
+    opacity: 0.6;
+}
+
+.up-flame {
+    flex-grow: 1;
+}
+
+.up-net {
+    flex-grow: 1;
+}
+
+.up-net-note {
+    white-space: normal;
+    font-size: 10px;
+    opacity: 0.75;
+    padding: 4px 8px;
+    flex-shrink: 0;
+}
+
+.up-flame-label {
+    position: absolute;
+    font-size: 10px;
+    color: white;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    -unity-text-align: middle-left;
+}
+
+.up-toolbar .up-view-toggle {
+    padding: 0 8px;
+}
+
+.up-pct-cell {
+    position: relative;
+    flex-direction: row;
+}
+
+.up-pct-bar {
+    position: absolute;
+    left: 0;
+    top: 2px;
+    bottom: 2px;
+    background-color: rgba(80, 140, 220, 0.25);
+    border-radius: 2px;
+}
+
+.up-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    margin-right: 4px;
+    flex-shrink: 0;
 }
 
 .up-delta-good { color: rgb(77, 200, 118); }

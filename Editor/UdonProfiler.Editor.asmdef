@@ -3,6 +3,7 @@
     "rootNamespace": "MagmaVRC.UdonProfiler",
     "references": [
         "VRC.Udon",
+        "VRC.Udon.Editor",
         "UdonSharp.Editor",
         "UdonSharp.Runtime"
     ],
@@ -17,6 +18,7 @@
         "VRC.Udon.Common.dll",
         "VRC.Udon.Wrapper.dll",
         "VRC.Udon.VM.dll",
+        "VRC.Udon.EditorBindings.dll",
         "VRCSDK3.dll",
         "VRCSDKBase.dll",
         "System.Collections.Immutable.dll"
