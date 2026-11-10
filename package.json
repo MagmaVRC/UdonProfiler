@@ -1,9 +1,9 @@
 {
   "name": "dev.magmavrc.udonprofiler",
   "displayName": "Udon Profiler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "unity": "2022.3",
-  "description": "Editor-only Udon VM profiler: per-event timing, call edges, extern usage.",
+  "description": "Editor-only Udon profiler: per-event and per-method timing, call graph, flame graph, extern usage.",
   "author": {
     "name": "MagmaVRC",
     "email": "magma.mc@magma-mc.net",
